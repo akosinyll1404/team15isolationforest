@@ -8,11 +8,18 @@ import matplotlib.pyplot as plt
 session = ort.InferenceSession("isolation_forest.onnx")
 
 def preprocess(df):
-    # Only keep the 3 sensor columns
-    return df[["temperature", "turbidity", "pH"]].astype(np.float32).values
+    # Match the training column names
+    required_cols = ["ph", "temperature_degC", "turbidity_fnu"]
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        st.error(f"Missing columns: {missing}. Please check your file headers.")
+        return None
+    return df[required_cols].astype(np.float32).values
 
 def predict(df):
     input_data = preprocess(df)
+    if input_data is None:
+        return None
     inputs = {session.get_inputs()[0].name: input_data}
     outputs = session.run(None, inputs)
     return outputs[0]  # Isolation Forest outputs -1 (anomaly) or 1 (normal)
@@ -33,21 +40,22 @@ if uploaded_file:
 
     # Run anomaly detection
     predictions = predict(df)
-    df["Prediction"] = np.where(predictions == -1, "Anomaly", "Normal")
+    if predictions is not None:
+        df["Prediction"] = np.where(predictions == -1, "Anomaly", "Normal")
 
-    st.write("✅ Processed Data with Predictions")
-    st.dataframe(df)
+        st.write("✅ Processed Data with Predictions")
+        st.dataframe(df)
 
-    # Visualization
-    st.subheader("Sensor Trends with Anomaly Flags")
-    fig, ax = plt.subplots()
-    ax.plot(df.index, df["temperature"], label="Temperature")
-    ax.plot(df.index, df["turbidity"], label="Turbidity")
-    ax.plot(df.index, df["pH"], label="pH")
+        # Visualization
+        st.subheader("Sensor Trends with Anomaly Flags")
+        fig, ax = plt.subplots()
+        ax.plot(df.index, df["temperature_degC"], label="Temperature (°C)")
+        ax.plot(df.index, df["turbidity_fnu"], label="Turbidity (FNU)")
+        ax.plot(df.index, df["ph"], label="pH")
 
-    # Highlight anomalies
-    anomalies = df[df["Prediction"] == "Anomaly"]
-    ax.scatter(anomalies.index, anomalies["temperature"], color="red", label="Anomalies")
+        # Highlight anomalies
+        anomalies = df[df["Prediction"] == "Anomaly"]
+        ax.scatter(anomalies.index, anomalies["temperature_degC"], color="red", label="Anomalies")
 
-    ax.legend()
-    st.pyplot(fig)
+        ax.legend()
+        st.pyplot(fig)
