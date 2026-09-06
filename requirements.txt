@@ -1,0 +1,6 @@
+streamlit
+onnxruntime
+pandas
+matplotlib
+numpy
+openpyxl   # if you want Excel support
