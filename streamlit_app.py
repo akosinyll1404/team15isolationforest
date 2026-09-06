@@ -86,34 +86,68 @@ if uploaded_file:
         "turbidity_fnu": turb_col
     }
 
-    # Run anomaly detection
-    predictions = predict(df, final_mapping)
-    if predictions is not None and len(predictions) == len(df):
-        df["Prediction"] = np.where(predictions == -1, "Anomaly", "Normal")
+# Run anomaly detection
+predictions = predict(df, final_mapping)
+if predictions is not None and len(predictions) == len(df):
+    df["Prediction"] = np.where(predictions == -1, "Anomaly", "Normal")
 
-        st.write("✅ Processed Data with Predictions")
-        st.dataframe(df)
+    st.write("✅ Processed Data with Predictions")
+    st.dataframe(df)
 
-        # Download results
-        csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button("⬇️ Download Results as CSV", csv, "predictions.csv", "text/csv")
+    # Download full results
+    csv = df.to_csv(index=False).encode("utf-8")
+    st.download_button("⬇️ Download Results as CSV", csv, "predictions.csv", "text/csv")
 
-        # Handle datetime if present
-        if "datetime" in df.columns:
-            df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
-            df.set_index("datetime", inplace=True)
+    # Download anomalies only
+    anomalies = df[df["Prediction"] == "Anomaly"]
+    if not anomalies.empty:
+        csv_anom = anomalies.to_csv(index=False).encode("utf-8")
+        st.download_button("⬇️ Download Anomalies Only", csv_anom, "anomalies.csv", "text/csv")
 
-        # Visualization
-        st.subheader("📈 Sensor Trends with Anomaly Flags")
-        fig, ax = plt.subplots()
-        ax.plot(df.index, df[temp_col], label="Temperature (°C)")
-        ax.plot(df.index, df[turb_col], label="Turbidity (FNU)")
-        ax.plot(df.index, df[ph_col], label="pH")
+    # Handle datetime if present
+    if "datetime" in df.columns:
+        df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
+        df.set_index("datetime", inplace=True)
 
-        anomalies = df[df["Prediction"] == "Anomaly"]
-        ax.scatter(anomalies.index, anomalies[temp_col], color="red", label="Anomalies")
+    # Visualization controls
+    st.subheader("📈 Sensor Trends")
+    view_mode = st.radio("Select view mode:", ["Raw Values", "Anomalies", "Deviation"])
 
-        ax.legend()
-        st.pyplot(fig)
-    else:
-        st.error("Prediction length mismatch. Check preprocessing and model input.")
+    fig, axes = plt.subplots(3, 1, figsize=(12, 12), sharex=True)
+
+    # --- pH ---
+    axes[0].plot(df.index, df[ph_col], color="black", label="pH")
+    if view_mode == "Anomalies":
+        axes[0].scatter(anomalies.index, anomalies[ph_col], color="red", label="Anomalies")
+    elif view_mode == "Deviation":
+        axes[0].plot(df.index, df[f"{ph_col}_roll_z"], color="blue", label="Deviation (z-score)")
+    axes[0].set_ylabel("pH")
+    axes[0].legend(loc="upper right")
+    axes[0].set_title("pH over time")
+
+    # --- Turbidity ---
+    axes[1].plot(df.index, df[turb_col], color="black", label="Turbidity (FNU)")
+    if view_mode == "Anomalies":
+        axes[1].scatter(anomalies.index, anomalies[turb_col], color="red", label="Anomalies")
+    elif view_mode == "Deviation":
+        axes[1].plot(df.index, df[f"{turb_col}_roll_z"], color="blue", label="Deviation (z-score)")
+    axes[1].set_ylabel("Turbidity (FNU)")
+    axes[1].legend(loc="upper right")
+    axes[1].set_title("Turbidity over time")
+
+    # --- Temperature ---
+    axes[2].plot(df.index, df[temp_col], color="black", label="Temperature (°C)")
+    if view_mode == "Anomalies":
+        axes[2].scatter(anomalies.index, anomalies[temp_col], color="red", label="Anomalies")
+    elif view_mode == "Deviation":
+        axes[2].plot(df.index, df[f"{temp_col}_roll_z"], color="blue", label="Deviation (z-score)")
+    axes[2].set_ylabel("Temperature (°C)")
+    axes[2].legend(loc="upper right")
+    axes[2].set_title("Temperature over time")
+
+    plt.xlabel("Datetime")
+    plt.tight_layout()
+    st.pyplot(fig)
+
+else:
+    st.error("Prediction length mismatch. Check preprocessing and model input.")
