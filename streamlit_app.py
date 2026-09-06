@@ -27,19 +27,23 @@ def auto_map_columns(df):
 
 def preprocess(df, mapping):
     try:
-        # Select the mapped columns
+        # Select only the mapped numeric sensor columns
         selected = df[[mapping["ph"], mapping["temperature_degC"], mapping["turbidity_fnu"]]]
 
-        # Convert to numeric, coerce errors → NaN
-        selected = selected.apply(pd.to_numeric, errors="coerce")
+        # Convert safely to numeric
+        selected = selected.apply(pd.to_numeric, errors="coerce").fillna(0)
 
-        # Fill NaN with 0 or forward-fill (choose strategy)
-        selected = selected.fillna(0)
+        # Ensure float32 numpy array
+        arr = selected.to_numpy(dtype=np.float32)
 
-        return selected.astype(np.float32).values
+        # Reshape if single row
+        if arr.ndim == 1:
+            arr = arr.reshape(1, -1)
+
+        return arr
     except Exception as e:
         st.error(f"Preprocessing failed: {e}")
-        return None
+        return 
 
 def predict(df, mapping):
     input_data = preprocess(df, mapping)
