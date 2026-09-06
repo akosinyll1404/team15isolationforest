@@ -26,11 +26,19 @@ def auto_map_columns(df):
     return mapping
 
 def preprocess(df, mapping):
-    """Extract required columns based on mapping."""
     try:
-        return df[[mapping["ph"], mapping["temperature_degC"], mapping["turbidity_fnu"]]].astype(np.float32).values
-    except KeyError as e:
-        st.error(f"Column mapping failed: {e}")
+        # Select the mapped columns
+        selected = df[[mapping["ph"], mapping["temperature_degC"], mapping["turbidity_fnu"]]]
+
+        # Convert to numeric, coerce errors → NaN
+        selected = selected.apply(pd.to_numeric, errors="coerce")
+
+        # Fill NaN with 0 or forward-fill (choose strategy)
+        selected = selected.fillna(0)
+
+        return selected.astype(np.float32).values
+    except Exception as e:
+        st.error(f"Preprocessing failed: {e}")
         return None
 
 def predict(df, mapping):
