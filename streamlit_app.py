@@ -35,23 +35,19 @@ def engineer_features(df, mapping, window=180):
     return df
 
 def preprocess(df, mapping):
-    try:
-        df = engineer_features(df, mapping)
-        feature_cols = [
-            mapping["ph"], f"{mapping['ph']}_roll_z", f"{mapping['ph']}_diff1",
-            mapping["temperature_degC"], f"{mapping['temperature_degC']}_roll_z", f"{mapping['temperature_degC']}_diff1",
-            mapping["turbidity_fnu"], f"{mapping['turbidity_fnu']}_roll_z", f"{mapping['turbidity_fnu']}_diff1"
-        ]
-        selected = df[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
-        arr = selected.to_numpy(dtype=np.float32)
-        if arr.ndim == 1:
-            arr = arr.reshape(1, -1)
-        st.write("Input shape:", arr.shape)   # should be (n_samples, 9)
-        st.write("Input dtype:", arr.dtype)   # should be float32
-        return arr
-    except Exception as e:
-        st.error(f"Preprocessing failed: {e}")
-        return None
+    df = engineer_features(df, mapping)
+    feature_cols = [
+        mapping["ph"], f"{mapping['ph']}_roll_z", f"{mapping['ph']}_diff1",
+        mapping["temperature_degC"], f"{mapping['temperature_degC']}_roll_z", f"{mapping['temperature_degC']}_diff1",
+        mapping["turbidity_fnu"], f"{mapping['turbidity_fnu']}_roll_z", f"{mapping['turbidity_fnu']}_diff1"
+    ]
+    selected = df[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
+    arr = selected.to_numpy(dtype=np.float32)
+    if arr.ndim == 1:
+        arr = arr.reshape(1, -1)
+    st.write("Input shape:", arr.shape)   # should be (n_samples, 9)
+    st.write("Input dtype:", arr.dtype)   # should be float32
+    return arr
 
 def predict(df, mapping):
     input_data = preprocess(df, mapping)
@@ -59,7 +55,8 @@ def predict(df, mapping):
         return None
     inputs = {session.get_inputs()[0].name: input_data}
     outputs = session.run(None, inputs)
-    return outputs[0]
+    preds = outputs[0].flatten()  # ensure 1D
+    return preds
 
 # Streamlit UI
 st.title("💧 Water Quality Anomaly Detection")
@@ -91,7 +88,7 @@ if uploaded_file:
 
     # Run anomaly detection
     predictions = predict(df, final_mapping)
-    if predictions is not None:
+    if predictions is not None and len(predictions) == len(df):
         df["Prediction"] = np.where(predictions == -1, "Anomaly", "Normal")
 
         st.write("✅ Processed Data with Predictions")
@@ -118,3 +115,5 @@ if uploaded_file:
 
         ax.legend()
         st.pyplot(fig)
+    else:
+        st.error("Prediction length mismatch. Check preprocessing and model input.")
