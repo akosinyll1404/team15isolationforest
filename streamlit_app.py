@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 # Load ONNX model
 session = ort.InferenceSession("isolation_forest.onnx")
 
-# Expected training columns
+# Expected training columns and aliases
 expected_cols = {
     "ph": ["ph", "pH", "ph_value"],
     "temperature_degC": ["temperature", "temp", "temperature_degC", "temp_c"],
@@ -27,23 +27,27 @@ def auto_map_columns(df):
 
 def preprocess(df, mapping):
     try:
-        # Select only the mapped numeric sensor columns
+        # Select only mapped sensor columns
         selected = df[[mapping["ph"], mapping["temperature_degC"], mapping["turbidity_fnu"]]]
 
         # Convert safely to numeric
         selected = selected.apply(pd.to_numeric, errors="coerce").fillna(0)
 
-        # Ensure float32 numpy array
+        # Ensure numpy float32 array
         arr = selected.to_numpy(dtype=np.float32)
 
         # Reshape if single row
         if arr.ndim == 1:
             arr = arr.reshape(1, -1)
 
+        # Debugging info
+        st.write("Input shape:", arr.shape)
+        st.write("Input dtype:", arr.dtype)
+
         return arr
     except Exception as e:
         st.error(f"Preprocessing failed: {e}")
-        return 
+        return None
 
 def predict(df, mapping):
     input_data = preprocess(df, mapping)
@@ -71,9 +75,9 @@ if uploaded_file:
     auto_mapping = auto_map_columns(df)
 
     st.subheader("🔧 Column Mapping")
-    ph_col = st.selectbox("Select pH column", df.columns, index=df.columns.get_loc(auto_mapping.get("ph", df.columns[0])))
-    temp_col = st.selectbox("Select Temperature column", df.columns, index=df.columns.get_loc(auto_mapping.get("temperature_degC", df.columns[0])))
-    turb_col = st.selectbox("Select Turbidity column", df.columns, index=df.columns.get_loc(auto_mapping.get("turbidity_fnu", df.columns[0])))
+    ph_col = st.selectbox("Select pH column", df.columns, index=df.columns.get_loc(auto_mapping.get("ph", df.columns[0])) if "ph" in auto_mapping else 0)
+    temp_col = st.selectbox("Select Temperature column", df.columns, index=df.columns.get_loc(auto_mapping.get("temperature_degC", df.columns[0])) if "temperature_degC" in auto_mapping else 0)
+    turb_col = st.selectbox("Select Turbidity column", df.columns, index=df.columns.get_loc(auto_mapping.get("turbidity_fnu", df.columns[0])) if "turbidity_fnu" in auto_mapping else 0)
 
     # Final mapping (user can override auto-map)
     final_mapping = {
@@ -93,6 +97,11 @@ if uploaded_file:
         # Download results
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button("⬇️ Download Results as CSV", csv, "predictions.csv", "text/csv")
+
+        # Handle datetime if present
+        if "datetime" in df.columns:
+            df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
+            df.set_index("datetime", inplace=True)
 
         # Visualization
         st.subheader("📈 Sensor Trends with Anomaly Flags")
