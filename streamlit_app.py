@@ -15,7 +15,6 @@ expected_cols = {
 }
 
 def auto_map_columns(df):
-    """Try to automatically map dataset columns to expected names."""
     df.columns = df.columns.str.strip().str.lower()
     mapping = {}
     for target, aliases in expected_cols.items():
@@ -25,25 +24,30 @@ def auto_map_columns(df):
                 break
     return mapping
 
+def engineer_features(df, mapping, window=180):
+    df = df.copy()
+    for col in [mapping["ph"], mapping["temperature_degC"], mapping["turbidity_fnu"]]:
+        roll_mean = df[col].rolling(window, min_periods=window//3).mean()
+        roll_std = df[col].rolling(window, min_periods=window//3).std()
+        df[f"{col}_roll_z"] = (df[col] - roll_mean) / roll_std
+        df[f"{col}_diff1"] = df[col].diff()
+    df = df.bfill().ffill()
+    return df
+
 def preprocess(df, mapping):
     try:
-        # Select only mapped sensor columns
-        selected = df[[mapping["ph"], mapping["temperature_degC"], mapping["turbidity_fnu"]]]
-
-        # Convert safely to numeric
-        selected = selected.apply(pd.to_numeric, errors="coerce").fillna(0)
-
-        # Ensure numpy float32 array
+        df = engineer_features(df, mapping)
+        feature_cols = [
+            mapping["ph"], f"{mapping['ph']}_roll_z", f"{mapping['ph']}_diff1",
+            mapping["temperature_degC"], f"{mapping['temperature_degC']}_roll_z", f"{mapping['temperature_degC']}_diff1",
+            mapping["turbidity_fnu"], f"{mapping['turbidity_fnu']}_roll_z", f"{mapping['turbidity_fnu']}_diff1"
+        ]
+        selected = df[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
         arr = selected.to_numpy(dtype=np.float32)
-
-        # Reshape if single row
         if arr.ndim == 1:
             arr = arr.reshape(1, -1)
-
-        # Debugging info
-        st.write("Input shape:", arr.shape)
-        st.write("Input dtype:", arr.dtype)
-
+        st.write("Input shape:", arr.shape)   # should be (n_samples, 9)
+        st.write("Input dtype:", arr.dtype)   # should be float32
         return arr
     except Exception as e:
         st.error(f"Preprocessing failed: {e}")
@@ -55,7 +59,7 @@ def predict(df, mapping):
         return None
     inputs = {session.get_inputs()[0].name: input_data}
     outputs = session.run(None, inputs)
-    return outputs[0]  # Isolation Forest outputs -1 (anomaly) or 1 (normal)
+    return outputs[0]
 
 # Streamlit UI
 st.title("💧 Water Quality Anomaly Detection")
@@ -71,7 +75,7 @@ if uploaded_file:
 
     st.write("📊 Raw Data Preview", df.head())
 
-    # Try auto-mapping
+    # Auto-map
     auto_mapping = auto_map_columns(df)
 
     st.subheader("🔧 Column Mapping")
@@ -79,7 +83,6 @@ if uploaded_file:
     temp_col = st.selectbox("Select Temperature column", df.columns, index=df.columns.get_loc(auto_mapping.get("temperature_degC", df.columns[0])) if "temperature_degC" in auto_mapping else 0)
     turb_col = st.selectbox("Select Turbidity column", df.columns, index=df.columns.get_loc(auto_mapping.get("turbidity_fnu", df.columns[0])) if "turbidity_fnu" in auto_mapping else 0)
 
-    # Final mapping (user can override auto-map)
     final_mapping = {
         "ph": ph_col,
         "temperature_degC": temp_col,
@@ -110,7 +113,6 @@ if uploaded_file:
         ax.plot(df.index, df[turb_col], label="Turbidity (FNU)")
         ax.plot(df.index, df[ph_col], label="pH")
 
-        # Highlight anomalies
         anomalies = df[df["Prediction"] == "Anomaly"]
         ax.scatter(anomalies.index, anomalies[temp_col], color="red", label="Anomalies")
 
