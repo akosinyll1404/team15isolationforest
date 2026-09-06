@@ -7,17 +7,34 @@ import matplotlib.pyplot as plt
 # Load ONNX model
 session = ort.InferenceSession("isolation_forest.onnx")
 
-def preprocess(df):
-    # Match the training column names
-    required_cols = ["ph", "temperature_degC", "turbidity_fnu"]
-    missing = [c for c in required_cols if c not in df.columns]
-    if missing:
-        st.error(f"Missing columns: {missing}. Please check your file headers.")
-        return None
-    return df[required_cols].astype(np.float32).values
+# Expected training columns
+expected_cols = {
+    "ph": ["ph", "pH", "ph_value"],
+    "temperature_degC": ["temperature", "temp", "temperature_degC", "temp_c"],
+    "turbidity_fnu": ["turbidity", "turbidity_fnu", "ntu"]
+}
 
-def predict(df):
-    input_data = preprocess(df)
+def auto_map_columns(df):
+    """Try to automatically map dataset columns to expected names."""
+    df.columns = df.columns.str.strip().str.lower()
+    mapping = {}
+    for target, aliases in expected_cols.items():
+        for alias in aliases:
+            if alias.lower() in df.columns:
+                mapping[target] = alias.lower()
+                break
+    return mapping
+
+def preprocess(df, mapping):
+    """Extract required columns based on mapping."""
+    try:
+        return df[[mapping["ph"], mapping["temperature_degC"], mapping["turbidity_fnu"]]].astype(np.float32).values
+    except KeyError as e:
+        st.error(f"Column mapping failed: {e}")
+        return None
+
+def predict(df, mapping):
+    input_data = preprocess(df, mapping)
     if input_data is None:
         return None
     inputs = {session.get_inputs()[0].name: input_data}
@@ -38,24 +55,43 @@ if uploaded_file:
 
     st.write("📊 Raw Data Preview", df.head())
 
+    # Try auto-mapping
+    auto_mapping = auto_map_columns(df)
+
+    st.subheader("🔧 Column Mapping")
+    ph_col = st.selectbox("Select pH column", df.columns, index=df.columns.get_loc(auto_mapping.get("ph", df.columns[0])))
+    temp_col = st.selectbox("Select Temperature column", df.columns, index=df.columns.get_loc(auto_mapping.get("temperature_degC", df.columns[0])))
+    turb_col = st.selectbox("Select Turbidity column", df.columns, index=df.columns.get_loc(auto_mapping.get("turbidity_fnu", df.columns[0])))
+
+    # Final mapping (user can override auto-map)
+    final_mapping = {
+        "ph": ph_col,
+        "temperature_degC": temp_col,
+        "turbidity_fnu": turb_col
+    }
+
     # Run anomaly detection
-    predictions = predict(df)
+    predictions = predict(df, final_mapping)
     if predictions is not None:
         df["Prediction"] = np.where(predictions == -1, "Anomaly", "Normal")
 
         st.write("✅ Processed Data with Predictions")
         st.dataframe(df)
 
+        # Download results
+        csv = df.to_csv(index=False).encode("utf-8")
+        st.download_button("⬇️ Download Results as CSV", csv, "predictions.csv", "text/csv")
+
         # Visualization
-        st.subheader("Sensor Trends with Anomaly Flags")
+        st.subheader("📈 Sensor Trends with Anomaly Flags")
         fig, ax = plt.subplots()
-        ax.plot(df.index, df["temperature_degC"], label="Temperature (°C)")
-        ax.plot(df.index, df["turbidity_fnu"], label="Turbidity (FNU)")
-        ax.plot(df.index, df["ph"], label="pH")
+        ax.plot(df.index, df[temp_col], label="Temperature (°C)")
+        ax.plot(df.index, df[turb_col], label="Turbidity (FNU)")
+        ax.plot(df.index, df[ph_col], label="pH")
 
         # Highlight anomalies
         anomalies = df[df["Prediction"] == "Anomaly"]
-        ax.scatter(anomalies.index, anomalies["temperature_degC"], color="red", label="Anomalies")
+        ax.scatter(anomalies.index, anomalies[temp_col], color="red", label="Anomalies")
 
         ax.legend()
         st.pyplot(fig)
